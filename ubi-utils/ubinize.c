@@ -66,6 +66,7 @@ static const char optionsstr[] =
 "                             header)\n"
 "-e, --erase-counter=<num>    the erase counter value to put to EC headers\n"
 "                             (default is 0)\n"
+"-c, --max-leb-cnt=<num>      maximum logical erase block count\n"
 "-x, --ubi-ver=<num>          UBI version number to put to EC headers\n"
 "                             (default is 1)\n"
 "-Q, --image-seq=<num>        32-bit UBI image sequence number to use\n"
@@ -78,8 +79,8 @@ static const char usage[] =
 "Usage: " PROGRAM_NAME " [-o filename] [-p <bytes>] [-m <bytes>] [-s <bytes>] [-O <num>] [-e <num>]\n"
 "\t\t[-x <num>] [-Q <num>] [-v] [-h] [-V] [--output=<filename>] [--peb-size=<bytes>]\n"
 "\t\t[--min-io-size=<bytes>] [--sub-page-size=<bytes>] [--vid-hdr-offset=<num>]\n"
-"\t\t[--erase-counter=<num>] [--ubi-ver=<num>] [--image-seq=<num>] [--verbose] [--help]\n"
-"\t\t[--version] ini-file\n"
+"\t\t[--erase-counter=<num>] [--max-leb-cnt=<num>] [--ubi-ver=<num>] [--image-seq=<num>]\n"
+"\t\t[--verbose] [--help] [--version] ini-file\n"
 "Example: " PROGRAM_NAME " -o ubi.img -p 16KiB -m 512 -s 256 cfg.ini - create UBI image\n"
 "         'ubi.img' as described by configuration file 'cfg.ini'";
 
@@ -119,6 +120,7 @@ static const char ini_doc[] = "INI-file format.\n"
 static const struct option long_options[] = {
 	{ .name = "output",         .has_arg = 1, .flag = NULL, .val = 'o' },
 	{ .name = "peb-size",       .has_arg = 1, .flag = NULL, .val = 'p' },
+	{ .name = "max-leb-cnt",    .has_arg = 1, .flag = NULL, .val = 'c' },
 	{ .name = "min-io-size",    .has_arg = 1, .flag = NULL, .val = 'm' },
 	{ .name = "sub-page-size",  .has_arg = 1, .flag = NULL, .val = 's' },
 	{ .name = "vid-hdr-offset", .has_arg = 1, .flag = NULL, .val = 'O' },
@@ -136,6 +138,7 @@ struct args {
 	const char *f_out;
 	int out_fd;
 	int peb_size;
+	int max_leb_count;
 	int min_io_size;
 	int subpage_size;
 	int vid_hdr_offs;
@@ -148,6 +151,7 @@ struct args {
 
 static struct args args = {
 	.peb_size     = -1,
+	.max_leb_count = -1,
 	.min_io_size  = -1,
 	.subpage_size = -1,
 	.ubi_ver      = 1,
@@ -162,7 +166,7 @@ static int parse_opt(int argc, char * const argv[])
 		int key, error = 0;
 		unsigned long int image_seq;
 
-		key = getopt_long(argc, argv, "o:p:m:s:O:e:x:Q:vhV", long_options, NULL);
+		key = getopt_long(argc, argv, "o:p:c:m:s:O:e:x:Q:vhV", long_options, NULL);
 		if (key == -1)
 			break;
 
@@ -180,7 +184,11 @@ static int parse_opt(int argc, char * const argv[])
 			if (args.peb_size <= 0)
 				return errmsg("bad physical eraseblock size: \"%s\"", optarg);
 			break;
-
+		case 'c':
+			args.max_leb_count = ubiutils_get_bytes(optarg);
+			if (args.max_leb_count <= 0)
+				return errmsg("bad maximum LEB count: \"%s\"", optarg);
+			break;
 		case 'm':
 			args.min_io_size = ubiutils_get_bytes(optarg);
 			if (args.min_io_size <= 0)
@@ -473,6 +481,8 @@ int main(int argc, char * const argv[])
 	verbose(args.verbose, "VID offset:                %d", ui.vid_hdr_offs);
 	verbose(args.verbose, "data offset:               %d", ui.data_offs);
 	verbose(args.verbose, "UBI image sequence number: %u", ui.image_seq);
+	if (args.max_leb_count > 0)
+		verbose(args.verbose, "maximum logical erase block count: %d", args.max_leb_count);
 
 	vtbl = ubigen_create_empty_vtbl(&ui);
 	if (!vtbl)
