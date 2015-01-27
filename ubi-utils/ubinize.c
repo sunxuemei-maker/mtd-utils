@@ -31,6 +31,7 @@
 #include <getopt.h>
 #include <string.h>
 #include <fcntl.h>
+#include <linux/list.h>
 
 #include <mtd/ubi-media.h>
 #include <libubigen.h>
@@ -38,6 +39,7 @@
 #include <libubi.h>
 #include "common.h"
 #include "ubiutils-common.h"
+#include "include/ubi-fastmap.h"
 
 static const char doc[] = PROGRAM_NAME " version " VERSION
 " - a tool to generate UBI images. An UBI image may contain one or more UBI "
@@ -455,6 +457,14 @@ static int read_section(const struct ubigen_info *ui, const char *sname,
 	else
 		vi->used_ebs = (st->st_size + vi->usable_leb_size - 1) / vi->usable_leb_size;
 	vi->compat = 0;
+	if (ui->max_leb_count > 0) {
+		vi->pebs = calloc(sizeof(int), ui->max_leb_count);
+		if (!vi->pebs) {
+			sys_errmsg("cannot allocate memory for vi->peb\n");
+			return -1;
+		}
+		memset(vi->pebs, -1, sizeof(int)*ui->max_leb_count);
+	}
 	return 0;
 }
 
@@ -464,6 +474,10 @@ int main(int argc, char * const argv[])
 	struct ubigen_info ui;
 	struct ubi_vtbl_record *vtbl;
 	struct ubigen_vol_info *vi;
+	int used_cnt = 0;
+	struct list_head used;
+	struct ubi_wl_peb *new_peb;
+
 	off_t seek;
 
 	err = parse_opt(argc, argv);
@@ -472,7 +486,7 @@ int main(int argc, char * const argv[])
 
 	ubigen_info_init(&ui, args.peb_size, args.min_io_size,
 			 args.subpage_size, args.vid_hdr_offs,
-			 args.ubi_ver, args.image_seq);
+			 args.ubi_ver, args.image_seq, args.max_leb_count);
 
 	verbose(args.verbose, "LEB size:                  %d", ui.leb_size);
 	verbose(args.verbose, "PEB size:                  %d", ui.peb_size);
@@ -517,7 +531,8 @@ int main(int argc, char * const argv[])
 		goto out_dict;
 	}
 
-	vi = calloc(sizeof(struct ubigen_vol_info), sects);
+	/* Save vi[0] for layout volume */
+	vi = calloc(sizeof(struct ubigen_vol_info), sects + 1);
 	if (!vi) {
 		errmsg("cannot allocate memory");
 		goto out_dict;
@@ -528,11 +543,23 @@ int main(int argc, char * const argv[])
 	 * will be written later.
 	 */
 	seek = ui.peb_size * 2;
+	used_cnt += 2;
 	if (lseek(args.out_fd, seek, SEEK_SET) != seek) {
 		sys_errmsg("cannot seek file \"%s\"", args.f_out);
 		goto out_free;
 	}
 
+	/* If max_leb_count was provided, leave one PEB for FM superblock */
+	if (ui.max_leb_count > 0) {
+		seek = ui.peb_size * 3;
+		used_cnt++;
+		if (lseek(args.out_fd, seek, SEEK_SET) != seek) {
+			sys_errmsg("cannot seek file \"%s\"", args.f_out);
+			goto out_free;
+		}
+	}
+
+	INIT_LIST_HEAD(&used);
 	for (i = 0; i < sects; i++) {
 		const char *sname = iniparser_getsecname(args.dict, i);
 		const char *img = NULL;
@@ -597,7 +624,9 @@ int main(int argc, char * const argv[])
 			verbose(args.verbose, "writing volume %d", vi[i].id);
 			verbose(args.verbose, "image file: %s", img);
 
-			err = ubigen_write_volume(&ui, &vi[i], args.ec, st.st_size, fd, args.out_fd);
+			err = ubigen_write_volume(&ui, &vi[i], args.ec,
+					st.st_size, fd, args.out_fd,
+					&used, &used_cnt);
 			close(fd);
 			if (err) {
 				errmsg("cannot write volume for section \"%s\"", sname);
@@ -611,14 +640,42 @@ int main(int argc, char * const argv[])
 
 	verbose(args.verbose, "writing layout volume");
 
-	err = ubigen_write_layout_vol(&ui, 0, 1, args.ec, args.ec, vtbl, args.out_fd);
+	err = ubigen_write_layout_vol(&ui, 0, 1, args.ec, args.ec, vtbl,
+			args.out_fd, &vi[sects]);
 	if (err) {
 		errmsg("cannot write layout volume");
 		goto out_free;
+	} else
+		verbose(args.verbose, "writing layout volume - done");
+
+	if (ui.max_leb_count > 0) {
+		vi[sects].pebs = calloc(sizeof(int), ui.max_leb_count);
+		if (!vi[sects].pebs) {
+			sys_errmsg("cannot allocate memory for vi->peb\n");
+			goto out_free;
+		}
+		memset(vi[sects].pebs, -1, sizeof(int)*ui.max_leb_count);
+		/* Add layout volume PEBs to used list */
+		for (i = 0; i < 2; i++) {
+			new_peb = malloc(sizeof(*new_peb));
+			if (!new_peb) {
+				sys_errmsg("mem allocation failed");
+				goto out_free;
+			}
+			new_peb->pnum = i;
+			new_peb->ec = args.ec;
+			vi[sects].pebs[i] = i;
+		}
+		vi[sects].reserved_pebs = 2;
+		add_fastmap_data(&ui, 2, used_cnt-1, args.ec, &used,
+				vi, sects+1, args.out_fd);
+		list_for_each_entry(new_peb, &used, list)
+			free(new_peb);
+		for (i = 0; i < sects; i++)
+			free(vi[i].pebs);
 	}
 
 	verbose(args.verbose, "done");
-
 	free(vi);
 	iniparser_freedict(args.dict);
 	free(vtbl);
@@ -626,6 +683,10 @@ int main(int argc, char * const argv[])
 	return 0;
 
 out_free:
+	list_for_each_entry(new_peb, &used, list)
+		free(new_peb);
+	for (i = 0; i < sects; i++)
+		free(vi[i].pebs);
 	free(vi);
 out_dict:
 	iniparser_freedict(args.dict);
