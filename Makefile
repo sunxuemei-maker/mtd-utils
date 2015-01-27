@@ -117,7 +117,7 @@ obj-libubi.a       = libubi.o
 obj-libubigen.a    = libubigen.o
 
 obj-mtdinfo   = libubigen.a
-obj-ubinize   = libubigen.a libiniparser.a
+obj-ubinize   = libubigen.a libiniparser.a ubi-fastmap.o
 obj-ubiformat = libubigen.a libscan.a
 
 $(foreach v,libubi.a libubigen.a libiniparser.a libscan.a,$(eval $(call _mkdep,ubi-utils/,$(v))))
