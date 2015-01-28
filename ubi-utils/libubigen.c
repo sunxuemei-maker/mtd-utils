@@ -237,7 +237,7 @@ int ubigen_write_volume(const struct ubigen_info *ui,
 			sys_errmsg("mem allocation failed");
 			goto out_free1;
 		}
-		new_peb->pnum = *used_cnt++;
+		new_peb->pnum = (*used_cnt)++;
 		new_peb->ec = ec;
 		list_add_tail(&new_peb->list, used);
 		if (vi->pebs)
