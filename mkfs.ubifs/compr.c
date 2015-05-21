@@ -27,9 +27,9 @@
 #include <lzo/lzo1x.h>
 #include <linux/types.h>
 
-#define crc32 __zlib_crc32
+//#define crc32 __zlib_crc32
 #include <zlib.h>
-#undef crc32
+//#undef crc32
 
 #include "compr.h"
 #include "mkfs.ubifs.h"
