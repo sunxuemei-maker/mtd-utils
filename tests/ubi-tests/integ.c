@@ -86,7 +86,7 @@ static uint64_t total_space = 0;
 static struct open_volume_fd *open_volumes;
 static int open_volume_count = 0;
 
-static const char *ubi_module_load_string;
+static const char *ubi_module_load_string = 0;
 
 static unsigned char *write_buffer = NULL;
 static unsigned char *read_buffer = NULL;
@@ -702,7 +702,6 @@ int main(int argc,char *argv[])
 	printf("UBI Integrity Test\n");
 
 	/* Get arguments */
-	ubi_module_load_string = 0;
 	for (i = 1; i < argc; ++i) {
 		if (strncmp(argv[i], "-h", 2) == 0)
 			args_ok = 0;
@@ -725,8 +724,9 @@ int main(int argc,char *argv[])
 		else
 			args_ok = 0;
 	}
-	if (!args_ok || !ubi_module_load_string) {
-		fprintf(stderr, "Usage is: ubi_integ [<options>] <UBI Module load command>\n");
+
+	if (!args_ok) {
+		fprintf(stderr, "Usage is: ubi_integ [<options>] [<UBI Module load command>]\n");
 		fprintf(stderr, "    Options: \n");
 		fprintf(stderr, "        -h, --help              Help\n");
 		fprintf(stderr, "        -n arg, --repeat=arg    Repeat test arg times\n");
@@ -736,7 +736,9 @@ int main(int argc,char *argv[])
 
 	next_seed = initial_seed = seed_random_generator();
 	printf("Initial seed = %u\n", (unsigned) initial_seed);
-	load_ubi();
+
+	if (ubi_module_load_string)
+		load_ubi();
 
 	libubi = libubi_open();
 	if (!libubi)
@@ -757,7 +759,8 @@ int main(int argc,char *argv[])
 
 		libubi_close(libubi);
 
-		reload_ubi();
+		if (ubi_module_load_string)
+			reload_ubi();
 
 		libubi = libubi_open();
 		if (!libubi)
