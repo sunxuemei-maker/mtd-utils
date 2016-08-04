@@ -43,6 +43,7 @@ static int test_mkvol(void)
 	int ret, i;
 	struct ubi_mkvol_request req;
 	const char *name = PROGRAM_NAME ":test_mkvol()";
+	int max_volumes_to_create;
 
 	req.alignment = 1;
 	req.bytes = dev_info.avail_bytes;
@@ -182,8 +183,19 @@ static int test_mkvol(void)
 		return -1;
 	}
 
+
+	max_volumes_to_create = dev_info.max_vol_count;
+	if (dev_info.avail_lebs < dev_info.max_vol_count) {
+		max_volumes_to_create = dev_info.avail_lebs;
+		fprintf(stderr, "mkvol: Device size too small For max volumes!\n");
+		fprintf(stderr, "please use a partition of atleast %d good blocks\n",
+			dev_info.max_vol_count);
+		fprintf(stderr, "Will attempt to create as %d volumes\n",
+		        max_volumes_to_create);
+	}
+
 	/* Try to create too many volumes */
-	for (i = 0; i < dev_info.max_vol_count; i++) {
+	for (i = 0; i < max_volumes_to_create; i++) {
 		char nm[strlen(name) + 50];
 
 		req.vol_id = UBI_VOL_NUM_AUTO;
