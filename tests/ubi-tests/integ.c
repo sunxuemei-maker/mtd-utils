@@ -86,7 +86,7 @@ static uint64_t total_space = 0;
 static struct open_volume_fd *open_volumes;
 static int open_volume_count = 0;
 
-static const char *ubi_module_load_string;
+static const char *ubi_module_load_string = 0;
 
 static unsigned char *write_buffer = NULL;
 static unsigned char *read_buffer = NULL;
@@ -94,6 +94,8 @@ static unsigned char *read_buffer = NULL;
 static long long max_ebs_per_vol = 0; /* max number of ebs per vol (zero => no max) */
 
 static unsigned long next_seed = 1;
+
+static long long device_number = -1;
 
 static unsigned get_next_seed()
 {
@@ -526,33 +528,46 @@ static void do_an_operation(void)
 		error_exit("Internal error");
 }
 
+static ssize_t get_single_ubi_device_info(ssize_t buf_size, int i)
+{
+	static int ubi_pos = 0;
+	char dev_name[1024];
+
+	struct ubi_device_info *s;
+	s = &ubi_array[ubi_pos++];
+	if (ubi_get_dev_info1(libubi, i, &s->info))
+		error_exit("ubi_get_dev_info1 failed");
+	if (s->info.vol_count)
+		error_exit("There are existing volumes");
+	/* FIXME: Correctly get device file name */
+	sprintf(dev_name, "/dev/ubi%d", i);
+	s->device_file_name = strdup(dev_name);
+	if (buf_size < s->info.leb_size)
+		buf_size = s->info.leb_size;
+	if (max_ebs_per_vol && s->info.leb_size * max_ebs_per_vol < s->info.avail_bytes)
+		total_space += s->info.leb_size * max_ebs_per_vol;
+	else
+		total_space += s->info.avail_bytes;
+}
+
 static void get_ubi_devices_info(void)
 {
-	int i, ubi_pos = 0;
-	char dev_name[1024];
+	int i;
 	ssize_t buf_size = 1024 * 128;
 
 	if (ubi_get_info(libubi, &info))
 		error_exit("ubi_get_info failed");
 	if (info.dev_count > MAX_UBI_DEVICES)
 		error_exit("Too many ubi devices");
-	for (i = info.lowest_dev_num; i <= info.highest_dev_num; ++i) {
-		struct ubi_device_info *s;
-		s = &ubi_array[ubi_pos++];
-		if (ubi_get_dev_info1(libubi, i, &s->info))
-			error_exit("ubi_get_dev_info1 failed");
-		if (s->info.vol_count)
-			error_exit("There are existing volumes");
-		/* FIXME: Correctly get device file name */
-		sprintf(dev_name, "/dev/ubi%d", i);
-		s->device_file_name = strdup(dev_name);
-		if (buf_size < s->info.leb_size)
-			buf_size = s->info.leb_size;
-		if (max_ebs_per_vol && s->info.leb_size * max_ebs_per_vol < s->info.avail_bytes)
-			total_space += s->info.leb_size * max_ebs_per_vol;
-		else
-			total_space += s->info.avail_bytes;
+
+	if (device_number < 0) {
+		for (i = info.lowest_dev_num; i <= info.highest_dev_num; ++i)
+			buf_size = get_single_ubi_device_info(buf_size, i);
+	} else {
+		buf_size = get_single_ubi_device_info(buf_size, device_number);
+		info.dev_count = 1;
 	}
+
 	write_buffer = allocate(buf_size);
 	read_buffer = allocate(buf_size);
 }
@@ -702,7 +717,6 @@ int main(int argc,char *argv[])
 	printf("UBI Integrity Test\n");
 
 	/* Get arguments */
-	ubi_module_load_string = 0;
 	for (i = 1; i < argc; ++i) {
 		if (strncmp(argv[i], "-h", 2) == 0)
 			args_ok = 0;
@@ -720,23 +734,33 @@ int main(int argc,char *argv[])
 		} else if (strncmp(argv[i], "--maxebs", 8) == 0) {
 			if (get_long_arg(&i, "--maxebs", &max_ebs_per_vol, argc, argv))
 				args_ok = 0;
+		} else if (strncmp(argv[i], "-d", 2) == 0) {
+			if (get_short_arg(&i,"-d", &device_number, argc, argv))
+				args_ok = 0;
+		} else if (strncmp(argv[i], "--device", 8) == 0) {
+			if (get_long_arg(&i, "--device", &device_number, argc, argv))
+				args_ok = 0;
 		} else if (!ubi_module_load_string)
 			ubi_module_load_string = argv[i];
 		else
 			args_ok = 0;
 	}
-	if (!args_ok || !ubi_module_load_string) {
-		fprintf(stderr, "Usage is: ubi_integ [<options>] <UBI Module load command>\n");
+
+	if (!args_ok) {
+		fprintf(stderr, "Usage is: ubi_integ [<options>] [<UBI Module load command>]\n");
 		fprintf(stderr, "    Options: \n");
 		fprintf(stderr, "        -h, --help              Help\n");
 		fprintf(stderr, "        -n arg, --repeat=arg    Repeat test arg times\n");
 		fprintf(stderr, "        -m arg, --maxebs=arg    Max no. of erase blocks\n");
+		fprintf(stderr, "        -d arg, --device=arg    Specify a device to use (default all devices)\n");
 		return 1;
 	}
 
 	next_seed = initial_seed = seed_random_generator();
 	printf("Initial seed = %u\n", (unsigned) initial_seed);
-	load_ubi();
+
+	if (ubi_module_load_string)
+		load_ubi();
 
 	libubi = libubi_open();
 	if (!libubi)
@@ -757,7 +781,8 @@ int main(int argc,char *argv[])
 
 		libubi_close(libubi);
 
-		reload_ubi();
+		if (ubi_module_load_string)
+			reload_ubi();
 
 		libubi = libubi_open();
 		if (!libubi)
