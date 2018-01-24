@@ -1,3 +1,4 @@
+ifneq ($(SDM660_DISABLE_MODULE),true)
 LOCAL_PATH := $(call my-dir)
 
 MTD_UTILS_VERSION=1.5.1
@@ -219,3 +220,4 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libc libubi libmtd
 include $(BUILD_EXECUTABLE)
 
+endif#SDM845_DISABLE_MODULE
