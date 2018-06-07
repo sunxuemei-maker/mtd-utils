@@ -43,11 +43,7 @@
 #include <errno.h>
 #include <libgen.h>
 #include <ctype.h>
-#ifdef ANDROID
-#include <uuid.h>
-#else
 #include <uuid/uuid.h>
-#endif
 #include <sys/file.h>
 
 #include <mtd/ubifs-media.h>

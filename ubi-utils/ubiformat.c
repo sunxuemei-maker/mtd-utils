@@ -663,7 +663,7 @@ static int format(libmtd_t libmtd, const struct mtd_dev_info *mtd,
 			goto out_free;
 
 		err = ubigen_write_layout_vol(ui, eb1, eb2, ec1,  ec2, vtbl,
-					      args.node_fd, NULL);
+					      args.node_fd);
 		free(vtbl);
 		if (err) {
 			errmsg("cannot write layout volume");
@@ -884,7 +884,7 @@ int main(int argc, char * const argv[])
 		normsg("use erase counter %lld for all eraseblocks", args.ec);
 
 	ubigen_info_init(&ui, mtd.eb_size, mtd.min_io_size, mtd.subpage_size,
-			 args.vid_hdr_offs, args.ubi_ver, args.image_seq, 0);
+			 args.vid_hdr_offs, args.ubi_ver, args.image_seq);
 
 	if (si->vid_hdr_offs != -1 && ui.vid_hdr_offs != si->vid_hdr_offs) {
 		/*
@@ -905,7 +905,7 @@ int main(int argc, char * const argv[])
 		} else
 			ubigen_info_init(&ui, mtd.eb_size, mtd.min_io_size, 0,
 					 si->vid_hdr_offs, args.ubi_ver,
-					 args.image_seq, 0);
+					 args.image_seq);
 		normsg("use offsets %d and %d",  ui.vid_hdr_offs, ui.data_offs);
 	}
 

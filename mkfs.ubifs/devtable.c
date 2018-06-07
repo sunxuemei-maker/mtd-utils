@@ -177,9 +177,6 @@ static int interpret_table_entry(const char *line)
 		case 'b':
 			mode |= S_IFBLK;
 			break;
-		case 's':
-			mode |= S_IFLNK;
-			break;
 		default:
 			return err_msg("unsupported file type '%c'", type);
 	}

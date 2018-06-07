@@ -36,18 +36,6 @@
 #include "libubi_int.h"
 #include "common.h"
 
-#ifdef ANDROID
-#include <sys/sysmacros.h>
-#include <linux/kdev_t.h>
-#include <stddef.h>
-
-#define _major MAJOR
-#define _minor MINOR
-#else
-#define _major major
-#define _minor minor
-#endif
-
 /**
  * mkpath - compose full path from 2 given components.
  * @path: the first component
@@ -392,8 +380,8 @@ static int vol_node2nums(struct libubi *lib, const char *node, int *dev_num,
 		return errmsg("\"%s\" is not a character device", node);
 	}
 
-	major = _major(st.st_rdev);
-	minor = _minor(st.st_rdev);
+	major = major(st.st_rdev);
+	minor = minor(st.st_rdev);
 
 	if (minor == 0) {
 		errno = EINVAL;
@@ -461,8 +449,8 @@ static int dev_node2num(struct libubi *lib, const char *node, int *dev_num)
 		return errmsg("\"%s\" is not a character device", node);
 	}
 
-	major = _major(st.st_rdev);
-	minor = _minor(st.st_rdev);
+	major = major(st.st_rdev);
+	minor = minor(st.st_rdev);
 
 	if (minor != 0) {
 		errno = EINVAL;
@@ -750,8 +738,8 @@ static int mtd_node_to_num(const char *mtd_dev_node)
 				  mtd_dev_node);
 	}
 
-	major = _major(sb.st_rdev);
-	minor = _minor(sb.st_rdev);
+	major = major(sb.st_rdev);
+	minor = minor(sb.st_rdev);
 
 	if (major != MTD_CHAR_MAJOR) {
 		errno = EINVAL;
@@ -890,8 +878,8 @@ int ubi_probe_node(libubi_t desc, const char *node)
 		return -1;
 	}
 
-	major = _major(st.st_rdev);
-	minor = _minor(st.st_rdev);
+	major = major(st.st_rdev);
+	minor = minor(st.st_rdev);
 
 	if (ubi_get_info((libubi_t *)lib, &info))
 		return -1;

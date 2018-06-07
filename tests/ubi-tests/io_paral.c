@@ -34,20 +34,20 @@
 #include "common.h"
 #include "helpers.h"
 
+#define THREADS_NUM 4
 #define ITERATIONS  (1024 * 1)
+#define VOL_LEBS    10
 
 static libubi_t libubi;
 static struct ubi_dev_info dev_info;
 static const char *node;
 static int vol_size;
 
-int vol_lebs = 0;
-int threads_num = 0;
-static struct ubi_mkvol_request *reqests;
-static char **vol_name;
-static char **vol_nodes;
-static unsigned char **wbufs;
-static unsigned char **rbufs;
+static struct ubi_mkvol_request reqests[THREADS_NUM + 1];
+static char vol_name[THREADS_NUM + 1][100];
+static char vol_nodes[THREADS_NUM + 1][sizeof(UBI_VOLUME_PATTERN) + 99];
+static unsigned char *wbufs[THREADS_NUM + 1];
+static unsigned char *rbufs[THREADS_NUM + 1];
 
 static int update_volume(int vol_id, int bytes)
 {
@@ -185,8 +185,8 @@ static void *write_thread(void *ptr)
 		errorm("cannot set property for \"%s\"\n", vol_node);
 	}
 
-	for (i = 0; i < ITERATIONS * vol_lebs; i++) {
-		int j, leb = rand() % vol_lebs;
+	for (i = 0; i < ITERATIONS * VOL_LEBS; i++) {
+		int j, leb = rand() % VOL_LEBS;
 		off_t offs = dev_info.leb_size * leb;
 
 		ret = ubi_leb_unmap(fd, leb);
@@ -228,49 +228,16 @@ static void *write_thread(void *ptr)
 	return NULL;
 }
 
-static void *safe_malloc(size_t size)
-{
-	void *ptr = malloc(size);
-	if (!ptr){
-		errorm("Memory allocation failed");
-		exit(1);
-	}
-	memset(ptr, 0, size);
-	return ptr;
-}
-
 int main(int argc, char * const argv[])
 {
 	int i, ret;
-	pthread_t *threads;
+	pthread_t threads[THREADS_NUM];
 
 	seed_random_generator();
 	if (initial_check(argc, argv))
 		return 1;
 
-	if (argc == 4){
-		node = argv[1];
-		threads_num = atoll(argv[2]);
-		vol_lebs = atoll(argv[3]);
-	} else {
-		errorm("Usage: ./io_paral <ubi_dev> <# threads> <# lebs per thread>");
-		exit(1);
-	}
-
-	threads = safe_malloc(threads_num * sizeof(pthread_t));
-	reqests = safe_malloc((threads_num + 1) *
-				sizeof(struct ubi_mkvol_request));
-	wbufs = safe_malloc((threads_num + 1) * sizeof(char *));
-	rbufs = safe_malloc((threads_num + 1) * sizeof(char *));
-
-	vol_name = safe_malloc((threads_num + 1) * sizeof(char *));
-	for(i = 0; i < threads_num + 1; ++i)
-		vol_name[i] = safe_malloc(100 * sizeof(char));
-
-	vol_nodes = safe_malloc((threads_num + 1) * sizeof(char *));
-	for(i = 0; i < threads_num + 1; ++i)
-		vol_nodes[i] = safe_malloc((sizeof(UBI_VOLUME_PATTERN) + 99) *
-					    sizeof(char));
+	node = argv[1];
 
 	libubi = libubi_open();
 	if (libubi == NULL) {
@@ -287,16 +254,15 @@ int main(int argc, char * const argv[])
 	 * Create 1 volume more than threads count. The last volume
 	 * will not change to let WL move more stuff.
 	 */
-
-	vol_size = dev_info.leb_size * vol_lebs;
-	for (i = 0; i <= threads_num; i++) {
+	vol_size = dev_info.leb_size * VOL_LEBS;
+	for (i = 0; i <= THREADS_NUM; i++) {
 		reqests[i].alignment = 1;
 		reqests[i].bytes = vol_size;
 		reqests[i].vol_id = i;
 		sprintf(vol_name[i], PROGRAM_NAME":%d", i);
 		reqests[i].name = vol_name[i];
 		reqests[i].vol_type = UBI_DYNAMIC_VOLUME;
-		if (i == threads_num)
+		if (i == THREADS_NUM)
 			reqests[i].vol_type = UBI_STATIC_VOLUME;
 		sprintf(vol_nodes[i], UBI_VOLUME_PATTERN, dev_info.dev_num, i);
 
@@ -317,27 +283,26 @@ int main(int argc, char * const argv[])
 			goto remove;
 	}
 
-	for (i = 0; i < threads_num / 2; i++) {
-		ret = pthread_create(&threads[i], NULL, &write_thread,
-				     (void *)(long)i);
-		if (ret) {
-			failed("pthread_create");
-			goto remove;
-		}
-	}
-	for (i = threads_num / 2; i < threads_num; i++) {
-		ret = pthread_create(&threads[i], NULL, &update_thread,
-					(void *)(long)i);
+	for (i = 0; i < THREADS_NUM / 2; i++) {
+		ret = pthread_create(&threads[i], NULL, &write_thread, (void *)(long)i);
 		if (ret) {
 			failed("pthread_create");
 			goto remove;
 		}
 	}
 
-	for (i = 0; i < threads_num; i++)
+	for (i = THREADS_NUM / 2; i < THREADS_NUM; i++) {
+		ret = pthread_create(&threads[i], NULL, &update_thread, (void *)(long)i);
+		if (ret) {
+			failed("pthread_create");
+			goto remove;
+		}
+	}
+
+	for (i = 0; i < THREADS_NUM; i++)
 		pthread_join(threads[i], NULL);
 
-	for (i = 0; i <= threads_num; i++) {
+	for (i = 0; i <= THREADS_NUM; i++) {
 		if (ubi_rmvol(libubi, node, i)) {
 			failed("ubi_rmvol");
 			goto remove;
@@ -354,32 +319,15 @@ int main(int argc, char * const argv[])
 	return 0;
 
 remove:
-	for (i = 0; i <= threads_num; i++) {
+	for (i = 0; i <= THREADS_NUM; i++) {
 		ubi_rmvol(libubi, node, i);
 		if (wbufs[i])
 			free(wbufs[i]);
 		if (rbufs[i])
 			free(rbufs[i]);
-		if (vol_name[i])
-			free(vol_name[i]);
-		if (vol_nodes[i])
-			free(vol_nodes[i]);
 		wbufs[i] = NULL;
 		rbufs[i] = NULL;
 	}
-
-	if (threads)
-		free(threads);
-	if (reqests)
-		free(reqests);
-	if (vol_name)
-		free(vol_name);
-	if (vol_nodes)
-		free(vol_nodes);
-	if (wbufs)
-		free(wbufs);
-	if (rbufs)
-		free(rbufs);
 
 close:
 	libubi_close(libubi);

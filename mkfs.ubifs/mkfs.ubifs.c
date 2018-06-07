@@ -1242,8 +1242,7 @@ static int add_file(const char *path_name, struct stat *st, ino_t inum,
 	unsigned int block_no = 0;
 	size_t out_len;
 
-//	fd = open(path_name, O_RDONLY | O_LARGEFILE);
-	fd = open(path_name, O_RDONLY);
+	fd = open(path_name, O_RDONLY | O_LARGEFILE);
 	if (fd == -1)
 		return sys_err_msg("failed to open file '%s'", path_name);
 	do {

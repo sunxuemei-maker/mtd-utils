@@ -159,7 +159,7 @@ remove:
 static int mkvol_multiple(void)
 {
 	struct ubi_mkvol_request req;
-	int i, ret, max = min(dev_info.avail_lebs, dev_info.max_vol_count);
+	int i, ret, max = dev_info.max_vol_count;
 	const char *name = PROGRAM_NAME ":mkvol_multiple()";
 
 	/* Create maximum number of volumes */

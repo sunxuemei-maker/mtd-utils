@@ -312,10 +312,6 @@ struct ubi_vid_hdr {
 #define UBI_LAYOUT_VOLUME_NAME   "layout volume"
 #define UBI_LAYOUT_VOLUME_COMPAT UBI_COMPAT_REJECT
 
-/* UBI fastmap on-flash data structures */
-#define UBI_FM_SB_VOLUME_ID	(UBI_LAYOUT_VOLUME_ID + 1)
-#define UBI_FM_DATA_VOLUME_ID	(UBI_LAYOUT_VOLUME_ID + 2)
-
 /* The maximum number of volumes per one UBI device */
 #define UBI_MAX_VOLUMES 128
 
