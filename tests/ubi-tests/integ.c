@@ -13,6 +13,7 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 
+#include <sys/sysmacros.h>
 #include "libubi.h"
 #define PROGRAM_NAME "integ"
 #include "common.h"

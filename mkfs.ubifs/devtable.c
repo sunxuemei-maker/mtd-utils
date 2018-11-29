@@ -47,6 +47,7 @@
 #include "mkfs.ubifs.h"
 #include "hashtable/hashtable.h"
 #include "hashtable/hashtable_itr.h"
+#include <sys/sysmacros.h>
 
 /*
  * The hash table which contains paths to files/directories/device nodes

@@ -34,10 +34,10 @@
 #include <sys/types.h>
 #include <libubi.h>
 #include "libubi_int.h"
+#include <sys/sysmacros.h>
 #include "common.h"
 
 #ifdef ANDROID
-#include <sys/sysmacros.h>
 #include <linux/kdev_t.h>
 #include <stddef.h>
 

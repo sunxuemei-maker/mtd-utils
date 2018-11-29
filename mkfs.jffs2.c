@@ -72,6 +72,7 @@
 #include <byteswap.h>
 #include <crc32.h>
 #include <inttypes.h>
+#include <sys/sysmacros.h>
 
 #include "rbtree.h"
 #include "common.h"

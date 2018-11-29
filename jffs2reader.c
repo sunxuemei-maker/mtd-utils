@@ -76,6 +76,7 @@ BUGS:
 #include <dirent.h>
 #include <zlib.h>
 
+#include <sys/sysmacros.h>
 #include "mtd/jffs2-user.h"
 #include "common.h"
 
