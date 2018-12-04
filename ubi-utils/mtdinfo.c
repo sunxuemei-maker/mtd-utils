@@ -34,7 +34,6 @@
 #include <libubigen.h>
 #include <libmtd.h>
 #include "common.h"
-#include "ubiutils-common.h"
 
 /* The variables below are set by command line arguments */
 struct args {
@@ -168,11 +167,11 @@ static void print_ubi_info(const struct mtd_info *mtd_info,
 	}
 
 	ubigen_info_init(&ui, mtd->eb_size, mtd->min_io_size, mtd->subpage_size,
-			 0, 1, 0, 0);
+			 0, 1, 0);
 	printf("Default UBI VID header offset:  %d\n", ui.vid_hdr_offs);
 	printf("Default UBI data offset:        %d\n", ui.data_offs);
 	printf("Default UBI LEB size:           ");
-	ubiutils_print_bytes(ui.leb_size, 0);
+	util_print_bytes(ui.leb_size, 0);
 	printf("\n");
 	printf("Maximum UBI volumes count:      %d\n", ui.max_volumes);
 }
@@ -253,6 +252,8 @@ static void print_region_info(const struct mtd_dev_info *mtd)
 	if (!args.node || (!args.map && mtd->region_cnt == 0))
 		return;
 
+	memset(&reginfo, 0, sizeof(reginfo));
+
 	/* First open the device so we can query it */
 	fd = open(args.node, O_RDONLY | O_CLOEXEC);
 	if (fd == -1) {
@@ -304,10 +305,10 @@ static int print_dev_info(libmtd_t libmtd, const struct mtd_info *mtd_info, int 
 	printf("Name:                           %s\n", mtd.name);
 	printf("Type:                           %s\n", mtd.type_str);
 	printf("Eraseblock size:                ");
-	ubiutils_print_bytes(mtd.eb_size, 0);
+	util_print_bytes(mtd.eb_size, 0);
 	printf("\n");
 	printf("Amount of eraseblocks:          %d (", mtd.eb_cnt);
-	ubiutils_print_bytes(mtd.size, 0);
+	util_print_bytes(mtd.size, 0);
 	printf(")\n");
 	printf("Minimum input/output unit size: %d %s\n",
 	       mtd.min_io_size, mtd.min_io_size > 1 ? "bytes" : "byte");
@@ -406,11 +407,8 @@ int main(int argc, char * const argv[])
 	}
 
 	err = mtd_get_info(libmtd, &mtd_info);
-	if (err) {
-		if (errno == ENODEV)
-			return errmsg("MTD is not present");
+	if (err)
 		return sys_errmsg("cannot get MTD information");
-	}
 
 	if (!args.all && args.node) {
 		int mtdn;

@@ -31,24 +31,12 @@
 #include <getopt.h>
 #include <string.h>
 #include <fcntl.h>
-#include <linux/list.h>
 
 #include <mtd/ubi-media.h>
 #include <libubigen.h>
 #include <libiniparser.h>
 #include <libubi.h>
 #include "common.h"
-#include "ubiutils-common.h"
-#include "include/ubi-fastmap.h"
-
-static const char doc[] = PROGRAM_NAME " version " VERSION
-" - a tool to generate UBI images. An UBI image may contain one or more UBI "
-"volumes which have to be defined in the input configuration ini-file. The "
-"ini file defines all the UBI volumes - their characteristics and the "
-"contents, but it does not define the characteristics of the flash the UBI "
-"image is generated for. Instead, the flash characteristics are defined via "
-"the command-line options. Note, if not sure about some of the command-line "
-"parameters, do not specify them and let the utility use default values.";
 
 static const char optionsstr[] =
 "-o, --output=<file name>     output file name\n"
@@ -68,61 +56,23 @@ static const char optionsstr[] =
 "                             header)\n"
 "-e, --erase-counter=<num>    the erase counter value to put to EC headers\n"
 "                             (default is 0)\n"
-"-c, --max-leb-cnt=<num>      maximum logical erase block count\n"
 "-x, --ubi-ver=<num>          UBI version number to put to EC headers\n"
 "                             (default is 1)\n"
 "-Q, --image-seq=<num>        32-bit UBI image sequence number to use\n"
 "                             (by default a random number is picked)\n"
 "-v, --verbose                be verbose\n"
 "-h, --help                   print help message\n"
-"-V, --version                print program version";
+"-V, --version                print program version\n\n";
 
 static const char usage[] =
-"Usage: " PROGRAM_NAME " [-o filename] [-p <bytes>] [-m <bytes>] [-s <bytes>] [-O <num>] [-e <num>]\n"
-"\t\t[-x <num>] [-Q <num>] [-v] [-h] [-V] [--output=<filename>] [--peb-size=<bytes>]\n"
-"\t\t[--min-io-size=<bytes>] [--sub-page-size=<bytes>] [--vid-hdr-offset=<num>]\n"
-"\t\t[--erase-counter=<num>] [--max-leb-cnt=<num>] [--ubi-ver=<num>] [--image-seq=<num>]\n"
-"\t\t[--verbose] [--help] [--version] ini-file\n"
-"Example: " PROGRAM_NAME " -o ubi.img -p 16KiB -m 512 -s 256 cfg.ini - create UBI image\n"
-"         'ubi.img' as described by configuration file 'cfg.ini'";
-
-static const char ini_doc[] = "INI-file format.\n"
-"The input configuration ini-file describes all the volumes which have to\n"
-"be included to the output UBI image. Each volume is described in its own\n"
-"section which may be named arbitrarily. The section consists on\n"
-"\"key=value\" pairs, for example:\n\n"
-"[jffs2-volume]\n"
-"mode=ubi\n"
-"image=../jffs2.img\n"
-"vol_id=1\n"
-"vol_size=30MiB\n"
-"vol_type=dynamic\n"
-"vol_name=jffs2_volume\n"
-"vol_flags=autoresize\n"
-"vol_alignment=1\n\n"
-"This example configuration file tells the utility to create an UBI image\n"
-"with one volume with ID 1, volume size 30MiB, the volume is dynamic, has\n"
-"name \"jffs2_volume\", \"autoresize\" volume flag, and alignment 1. The\n"
-"\"image=../jffs2.img\" line tells the utility to take the contents of the\n"
-"volume from the \"../jffs2.img\" file. The size of the image file has to be\n"
-"less or equivalent to the volume size (30MiB). The \"mode=ubi\" line is\n"
-"mandatory and just tells that the section describes an UBI volume - other\n"
-"section modes may be added in the future.\n"
-"Notes:\n"
-"  * size in vol_size might be specified kilobytes (KiB), megabytes (MiB),\n"
-"    gigabytes (GiB) or bytes (no modifier);\n"
-"  * if \"vol_size\" key is absent, the volume size is assumed to be\n"
-"    equivalent to the size of the image file (defined by \"image\" key);\n"
-"  * if the \"image\" is absent, the volume is assumed to be empty;\n"
-"  * volume alignment must not be greater than the logical eraseblock size;\n"
-"  * one ini file may contain arbitrary number of sections, the utility will\n"
-"    put all the volumes which are described by these section to the output\n"
-"    UBI image file.";
+"Usage: " PROGRAM_NAME " [options] <ini-file>\n\n"
+"Generate UBI images. An UBI image may contain one or more UBI volumes which\n"
+"have to be defined in the input configuration ini-file. The flash\n"
+"characteristics are defined via the command-line options.\n\n";
 
 static const struct option long_options[] = {
 	{ .name = "output",         .has_arg = 1, .flag = NULL, .val = 'o' },
 	{ .name = "peb-size",       .has_arg = 1, .flag = NULL, .val = 'p' },
-	{ .name = "max-leb-cnt",    .has_arg = 1, .flag = NULL, .val = 'c' },
 	{ .name = "min-io-size",    .has_arg = 1, .flag = NULL, .val = 'm' },
 	{ .name = "sub-page-size",  .has_arg = 1, .flag = NULL, .val = 's' },
 	{ .name = "vid-hdr-offset", .has_arg = 1, .flag = NULL, .val = 'O' },
@@ -140,7 +90,6 @@ struct args {
 	const char *f_out;
 	int out_fd;
 	int peb_size;
-	int max_leb_count;
 	int min_io_size;
 	int subpage_size;
 	int vid_hdr_offs;
@@ -153,7 +102,6 @@ struct args {
 
 static struct args args = {
 	.peb_size     = -1,
-	.max_leb_count = -1,
 	.min_io_size  = -1,
 	.subpage_size = -1,
 	.ubi_ver      = 1,
@@ -161,14 +109,14 @@ static struct args args = {
 
 static int parse_opt(int argc, char * const argv[])
 {
-	ubiutils_srand();
+	util_srand();
 	args.image_seq = rand();
 
 	while (1) {
 		int key, error = 0;
 		unsigned long int image_seq;
 
-		key = getopt_long(argc, argv, "o:p:c:m:s:O:e:x:Q:vhV", long_options, NULL);
+		key = getopt_long(argc, argv, "o:p:m:s:O:e:x:Q:vhV", long_options, NULL);
 		if (key == -1)
 			break;
 
@@ -182,17 +130,13 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'p':
-			args.peb_size = ubiutils_get_bytes(optarg);
+			args.peb_size = util_get_bytes(optarg);
 			if (args.peb_size <= 0)
 				return errmsg("bad physical eraseblock size: \"%s\"", optarg);
 			break;
-		case 'c':
-			args.max_leb_count = ubiutils_get_bytes(optarg);
-			if (args.max_leb_count <= 0)
-				return errmsg("bad maximum LEB count: \"%s\"", optarg);
-			break;
+
 		case 'm':
-			args.min_io_size = ubiutils_get_bytes(optarg);
+			args.min_io_size = util_get_bytes(optarg);
 			if (args.min_io_size <= 0)
 				return errmsg("bad min. I/O unit size: \"%s\"", optarg);
 			if (!is_power_of_2(args.min_io_size))
@@ -200,7 +144,7 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 's':
-			args.subpage_size = ubiutils_get_bytes(optarg);
+			args.subpage_size = util_get_bytes(optarg);
 			if (args.subpage_size <= 0)
 				return errmsg("bad sub-page size: \"%s\"", optarg);
 			if (!is_power_of_2(args.subpage_size))
@@ -237,10 +181,10 @@ static int parse_opt(int argc, char * const argv[])
 			break;
 
 		case 'h':
-			ubiutils_print_text(stdout, doc, 80);
-			printf("\n%s\n\n", ini_doc);
-			printf("%s\n\n", usage);
-			printf("%s\n", optionsstr);
+			fputs(usage, stdout);
+			fputs(optionsstr, stdout);
+			printf("For more information see `man 8 %s`\n\n",
+				PROGRAM_NAME);
 			exit(EXIT_SUCCESS);
 
 		case 'V':
@@ -248,7 +192,8 @@ static int parse_opt(int argc, char * const argv[])
 			exit(EXIT_SUCCESS);
 
 		default:
-			fprintf(stderr, "Use -h for help\n");
+			fputs(usage, stderr);
+			fputs("Use -h for help\n\n", stderr);
 			return -1;
 		}
 	}
@@ -378,7 +323,7 @@ static int read_section(const struct ubigen_info *ui, const char *sname,
 	sprintf(buf, "%s:vol_size", sname);
 	p = iniparser_getstring(args.dict, buf, NULL);
 	if (p) {
-		vi->bytes = ubiutils_get_bytes(p);
+		vi->bytes = util_get_bytes(p);
 		if (vi->bytes <= 0)
 			return errmsg("bad \"vol_size\" key value \"%s\" (section \"%s\")",
 				      p, sname);
@@ -407,7 +352,7 @@ static int read_section(const struct ubigen_info *ui, const char *sname,
 
 		normsg_cont("volume size was not specified in section \"%s\", assume"
 			    " minimum to fit image \"%s\"", sname, *img);
-		ubiutils_print_bytes(vi->bytes, 1);
+		util_print_bytes(vi->bytes, 1);
 		printf("\n");
 	}
 
@@ -457,14 +402,6 @@ static int read_section(const struct ubigen_info *ui, const char *sname,
 	else
 		vi->used_ebs = (st->st_size + vi->usable_leb_size - 1) / vi->usable_leb_size;
 	vi->compat = 0;
-	if (ui->max_leb_count > 0) {
-		vi->pebs = calloc(sizeof(int), ui->max_leb_count);
-		if (!vi->pebs) {
-			sys_errmsg("cannot allocate memory for vi->peb\n");
-			return -1;
-		}
-		memset(vi->pebs, -1, sizeof(int)*ui->max_leb_count);
-	}
 	return 0;
 }
 
@@ -474,10 +411,6 @@ int main(int argc, char * const argv[])
 	struct ubigen_info ui;
 	struct ubi_vtbl_record *vtbl;
 	struct ubigen_vol_info *vi;
-	int used_cnt = 0;
-	struct list_head used;
-	struct ubi_wl_peb *new_peb;
-
 	off_t seek;
 
 	err = parse_opt(argc, argv);
@@ -486,7 +419,7 @@ int main(int argc, char * const argv[])
 
 	ubigen_info_init(&ui, args.peb_size, args.min_io_size,
 			 args.subpage_size, args.vid_hdr_offs,
-			 args.ubi_ver, args.image_seq, args.max_leb_count);
+			 args.ubi_ver, args.image_seq);
 
 	verbose(args.verbose, "LEB size:                  %d", ui.leb_size);
 	verbose(args.verbose, "PEB size:                  %d", ui.peb_size);
@@ -495,8 +428,6 @@ int main(int argc, char * const argv[])
 	verbose(args.verbose, "VID offset:                %d", ui.vid_hdr_offs);
 	verbose(args.verbose, "data offset:               %d", ui.data_offs);
 	verbose(args.verbose, "UBI image sequence number: %u", ui.image_seq);
-	if (args.max_leb_count > 0)
-		verbose(args.verbose, "maximum logical erase block count: %d", args.max_leb_count);
 
 	vtbl = ubigen_create_empty_vtbl(&ui);
 	if (!vtbl)
@@ -531,8 +462,7 @@ int main(int argc, char * const argv[])
 		goto out_dict;
 	}
 
-	/* Save vi[0] for layout volume */
-	vi = calloc(sizeof(struct ubigen_vol_info), sects + 1);
+	vi = calloc(sizeof(struct ubigen_vol_info), sects);
 	if (!vi) {
 		errmsg("cannot allocate memory");
 		goto out_dict;
@@ -543,23 +473,12 @@ int main(int argc, char * const argv[])
 	 * will be written later.
 	 */
 	seek = ui.peb_size * 2;
-	used_cnt += 2;
 	if (lseek(args.out_fd, seek, SEEK_SET) != seek) {
+		err = -1;
 		sys_errmsg("cannot seek file \"%s\"", args.f_out);
 		goto out_free;
 	}
 
-	/* If max_leb_count was provided, leave one PEB for FM superblock */
-	if (ui.max_leb_count > 0) {
-		seek = ui.peb_size * 3;
-		used_cnt++;
-		if (lseek(args.out_fd, seek, SEEK_SET) != seek) {
-			sys_errmsg("cannot seek file \"%s\"", args.f_out);
-			goto out_free;
-		}
-	}
-
-	INIT_LIST_HEAD(&used);
 	for (i = 0; i < sects; i++) {
 		const char *sname = iniparser_getsecname(args.dict, i);
 		const char *img = NULL;
@@ -567,6 +486,7 @@ int main(int argc, char * const argv[])
 		int fd, j;
 
 		if (!sname) {
+			err = -1;
 			errmsg("ini-file parsing error (iniparser_getsecname)");
 			goto out_free;
 		}
@@ -587,6 +507,7 @@ int main(int argc, char * const argv[])
 		 */
 		for (j = 0; j < i; j++) {
 			if (vi[i].id == vi[j].id) {
+				err = -1;
 				errmsg("volume IDs must be unique, but ID %d "
 				       "in section \"%s\" is not",
 				       vi[i].id, sname);
@@ -594,6 +515,7 @@ int main(int argc, char * const argv[])
 			}
 
 			if (!strcmp(vi[i].name, vi[j].name)) {
+				err = -1;
 				errmsg("volume name must be unique, but name "
 				       "\"%s\" in section \"%s\" is not",
 				       vi[i].name, sname);
@@ -617,6 +539,7 @@ int main(int argc, char * const argv[])
 		if (img) {
 			fd = open(img, O_RDONLY);
 			if (fd == -1) {
+				err = fd;
 				sys_errmsg("cannot open \"%s\"", img);
 				goto out_free;
 			}
@@ -624,9 +547,7 @@ int main(int argc, char * const argv[])
 			verbose(args.verbose, "writing volume %d", vi[i].id);
 			verbose(args.verbose, "image file: %s", img);
 
-			err = ubigen_write_volume(&ui, &vi[i], args.ec,
-					st.st_size, fd, args.out_fd,
-					&used, &used_cnt);
+			err = ubigen_write_volume(&ui, &vi[i], args.ec, st.st_size, fd, args.out_fd);
 			close(fd);
 			if (err) {
 				errmsg("cannot write volume for section \"%s\"", sname);
@@ -640,42 +561,14 @@ int main(int argc, char * const argv[])
 
 	verbose(args.verbose, "writing layout volume");
 
-	err = ubigen_write_layout_vol(&ui, 0, 1, args.ec, args.ec, vtbl,
-			args.out_fd, &vi[sects]);
+	err = ubigen_write_layout_vol(&ui, 0, 1, args.ec, args.ec, vtbl, args.out_fd);
 	if (err) {
 		errmsg("cannot write layout volume");
 		goto out_free;
-	} else
-		verbose(args.verbose, "writing layout volume - done");
-
-	if (ui.max_leb_count > 0) {
-		vi[sects].pebs = calloc(sizeof(int), ui.max_leb_count);
-		if (!vi[sects].pebs) {
-			sys_errmsg("cannot allocate memory for vi->peb\n");
-			goto out_free;
-		}
-		memset(vi[sects].pebs, -1, sizeof(int)*ui.max_leb_count);
-		/* Add layout volume PEBs to used list */
-		for (i = 0; i < 2; i++) {
-			new_peb = malloc(sizeof(*new_peb));
-			if (!new_peb) {
-				sys_errmsg("mem allocation failed");
-				goto out_free;
-			}
-			new_peb->pnum = i;
-			new_peb->ec = args.ec;
-			vi[sects].pebs[i] = i;
-		}
-		vi[sects].reserved_pebs = 2;
-		add_fastmap_data(&ui, 2, used_cnt-1, args.ec, &used,
-				vi, sects+1, args.out_fd);
-		list_for_each_entry(new_peb, &used, list)
-			free(new_peb);
-		for (i = 0; i < sects; i++)
-			free(vi[i].pebs);
 	}
 
 	verbose(args.verbose, "done");
+
 	free(vi);
 	iniparser_freedict(args.dict);
 	free(vtbl);
@@ -683,10 +576,6 @@ int main(int argc, char * const argv[])
 	return 0;
 
 out_free:
-	list_for_each_entry(new_peb, &used, list)
-		free(new_peb);
-	for (i = 0; i < sects; i++)
-		free(vi[i].pebs);
 	free(vi);
 out_dict:
 	iniparser_freedict(args.dict);

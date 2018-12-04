@@ -31,17 +31,15 @@
 #include <getopt.h>
 #include <assert.h>
 #include <mntent.h>
-#include <execinfo.h>
-#include <bits/stdio_lim.h>
 #include <sys/mman.h>
 #include <sys/vfs.h>
 #include <sys/mount.h>
 #include <sys/statvfs.h>
 
-#define PROGRAM_VERSION "1.1"
 #define PROGRAM_NAME "integck"
 #include "common.h"
 #include "libubi.h"
+#include "libmissing.h"
 
 /*
  * WARNING! This is a dirty hack! The symbols for static functions are not
@@ -1166,7 +1164,7 @@ static int file_mmap_write(struct file_info *file)
 	}
 	r = random_no(write_cnt);
 	w = file->writes;
-	for (i = 0; w && w->next && i < r; i++)
+	for (i = 0; i < r; i++)
 		w = w->next;
 
 	offs = (w->offset / fsinfo.page_size) * fsinfo.page_size;
@@ -1642,7 +1640,7 @@ static char *symlink_path(const char *path, const char *target_pathname)
 	return p;
 }
 
-void symlink_check(const struct symlink_info *symlink)
+static void symlink_check(const struct symlink_info *symlink)
 {
 	char *path, buf[8192], *target;
 	struct stat st1, st2;
@@ -2993,7 +2991,7 @@ static void get_tested_fs_info(void)
 	       pid, fsinfo.fstype, fsinfo.mount_point);
 }
 
-static const char doc[] = PROGRAM_NAME " version " PROGRAM_VERSION
+static const char doc[] = PROGRAM_NAME " version " VERSION
 " - a stress test which checks the file-system integrity.\n"
 "\n"
 "The test creates a directory named \"integck_test_dir_<pid>\", where where\n"
@@ -3078,14 +3076,17 @@ static int parse_opts(int argc, char * const argv[])
 			args.verbose = 1;
 			break;
 		case 'V':
-			fprintf(stderr, "%s\n", PROGRAM_VERSION);
+			common_print_version();
 			exit(EXIT_SUCCESS);
 
 		case 'h':
-		case '?':
 			fprintf(stderr, "%s\n\n", doc);
 			fprintf(stderr, "%s\n", optionsstr);
 			exit(EXIT_SUCCESS);
+		case '?':
+			fprintf(stderr, "%s\n\n", doc);
+			fprintf(stderr, "%s\n", optionsstr);
+			exit(-1);
 		case ':':
 			return errmsg("parameter is missing");
 
